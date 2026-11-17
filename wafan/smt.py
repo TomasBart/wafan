@@ -83,6 +83,7 @@ from .regex_conv import UnsupportedPatternError, pcre_to_ecma2020
 from .transforms.html_entity_decode import html_entity_decode_fun_decl
 from .transforms.url_decode import url_decode_fun_decl
 from .transforms.url_decode_uni import url_decode_uni_fun_decl
+from .ipmatch import ipmatch_to_regex
 
 
 SMT_LOGIC = "QF_SLIA"
@@ -621,6 +622,23 @@ def _op_pm(var_expr: str, argument: str, negated: bool) -> str:
     # var_expr.
     return _op_pm_phrases(var_expr, argument.split(), negated)
 
+def _op_ipmatch(var_expr: str, argument: str, negated: bool) -> str:
+    #@ipMatch: matches if var_expr is included in the list of the IP addresses or is included in the range
+
+    try:
+        #the @ipMatch argument is transformed to a corresponding regex
+        regex = ipmatch_to_regex(argument)
+    except ValueError as exc:
+        raise UnsupportedOperatorError(
+            f"@ipMatch argument '{argument}' is not supported: {exc}"
+        ) from exc
+
+    #if the @ipMatch string was empty, ModSecurity treats it as 'the rule is never matched' (false)
+    if regex is None:
+        return _wrap_negated("false", negated)
+    
+    #create the regex assertion
+    return _rx_assertion(var_expr, regex, negated)
 
 # ---------------------------------------------------------------------------
 # @pmFromFile / @pmf
@@ -699,6 +717,7 @@ _OPERATORS: dict[str, Callable[[str, str, bool], str]] = {
     "endswith": _op_endswith,
     "within": _op_within,
     "pm": _op_pm,
+    "ipmatch": _op_ipmatch,
     **{name: _make_numeric_op(smt_op) for name, smt_op in _NUMERIC_OPS.items()},
 }
 
