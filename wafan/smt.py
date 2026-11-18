@@ -84,7 +84,7 @@ from .transforms.html_entity_decode import html_entity_decode_fun_decl
 from .transforms.url_decode import url_decode_fun_decl
 from .transforms.url_decode_uni import url_decode_uni_fun_decl
 from .ipmatch import ipmatch_to_regex
-
+from .validatebyterange import allowed_bytes_to_SMTLIB_regex
 
 SMT_LOGIC = "QF_SLIA"
 
@@ -640,6 +640,22 @@ def _op_ipmatch(var_expr: str, argument: str, negated: bool) -> str:
     #create the regex assertion
     return _rx_assertion(var_expr, regex, negated)
 
+def _op_validatebyterange(var_expr: str, argument: str, negated: bool) -> str:
+    #@validateByteRange: matches if var_expr contains at least 1 byte that WAS NOT allowed in the list
+    #e.g. detecting and not allowing NULL bytes:
+    #SecRule ARGS "@validateByteRange 1-255" "id:2000"
+
+    try:
+        #SMT-lib regex for allowed bytes
+        allowed_regex = allowed_bytes_to_SMTLIB_regex(argument, var_expr)
+    except ValueError as exc:
+        raise UnsupportedOperatorError(
+            f"@validateByteRange argument '{argument}' is not supported: {exc}"
+        ) from exc
+
+    #if this is not true (at least 1 var_expr byte is not allowed), the rule matches
+    return _wrap_negated(f"(not {allowed_regex})", negated)
+
 # ---------------------------------------------------------------------------
 # @pmFromFile / @pmf
 # ---------------------------------------------------------------------------
@@ -718,6 +734,7 @@ _OPERATORS: dict[str, Callable[[str, str, bool], str]] = {
     "within": _op_within,
     "pm": _op_pm,
     "ipmatch": _op_ipmatch,
+    "validatebyterange": _op_validatebyterange,
     **{name: _make_numeric_op(smt_op) for name, smt_op in _NUMERIC_OPS.items()},
 }
 

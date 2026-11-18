@@ -106,10 +106,9 @@ def ipv6_or_ipv6_cidr_to_regex(entry: str) -> str:
         
         four_digit_regexes = digit_regexes[start_idx : end_idx]
         
-        # 3. Spojíme je dohromady do jednoho řetězce (např. ['2', '0', '0', '1'] -> "2001")
         group = "".join(four_digit_regexes)
         groups.append(group)
-        
+
     return ":".join(groups)
 
 def entry_to_regex(entry: str) -> str:
