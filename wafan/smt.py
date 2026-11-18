@@ -213,6 +213,8 @@ _TRANSFORMS: dict[str, _TransformDef] = {
                                        fun_decl_builder=url_decode_uni_fun_decl),
     "htmlentitydecode":  _TransformDef(smt_fn="t_htmlEntityDecode",
                                         fun_decl_builder=html_entity_decode_fun_decl),
+    "length":           _TransformDef(smt_fn="t_length",
+        fun_decl="(define-fun t_length ((s String)) String (str.from_int (str.len s)))",),
     "removewhitespace":  _uninterpreted("t_removeWhitespace",   *_REMOVE_WS_AXIOMS),
     "compresswhitespace":_uninterpreted("t_compressWhitespace", *_COMPRESS_WS_AXIOMS),
     "removenulls":       _uninterpreted("t_removeNulls",        *_REMOVE_NULLS_AXIOMS),
