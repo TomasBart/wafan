@@ -8,7 +8,7 @@ import ipaddress
 ANY_OCTET_REGEX = "(" + "[0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5]" + ")"
 
 #regex for 1 hexadec. digit of IPv6 address
-ANY_HEX_DIGIT_REGEX = "[0-9a-f]"
+ANY_HEX_DIGIT_REGEX = "[0-9a-fA-F]"
 
 def octet_range_regex(lowest: int, highest: int) -> str:
     """Creates and returns a regex for number range lowest-highest, where the this range represents a range somewhere in 0-255."""
@@ -57,20 +57,33 @@ def ipv4_or_ipv4_cidr_to_regex(entry: str) -> str:
             parts.append("(" + octet_range_regex(lowest_addr, highest_addr) + ")")
     return r"\.".join(parts)
 
+def ipv6_shortened_variant(group_regexes: list[str], group_can_be_zero: list[bool]) -> list[str]:
+    """Creates and returns regexes for all shortened variants of the passed IPv6 address using :: """
+
+    variants = []
+    for start in range(8):
+        for end in range(start + 1, 9):
+            #to be replaced by ::, all the digits must be able to be 0s
+            if all(group_can_be_zero[start:end]):
+                #all the remaining groups are kept the same
+                variants.append((":".join(group_regexes[0:start])) 
+                                + "::" 
+                                + ":".join(group_regexes[end:]))
+
+    return variants
+
 def ipv6_or_ipv6_cidr_to_regex(entry: str) -> str:
     """Transforms the given IPv6 address or IPv6 CIDR block to a matching regular expression."""
 
     #the process is basically identical to the IPv4 processing
-
-    #only the full form is accepted as input for now: 8 groups, each consisting of 4 lowercase hexadec. digits (e.g. 2001:0db8:0000:...).
-    # TODO - extend
-
     net = ipaddress.IPv6Network(entry.strip(), strict=False)
 
     #the whole address as 32 individual, lowercase hexadec. digits
     hex_digits = net.network_address.packed.hex()
 
     digit_regexes = []
+    #a helper array - true means the digit at the given position can be 0
+    can_be_zero = []
     for idx in range(32):
         fixed_bits_count = net.prefixlen - 4 * idx
         if fixed_bits_count > 4:
@@ -80,9 +93,17 @@ def ipv6_or_ipv6_cidr_to_regex(entry: str) -> str:
 
         curr_digit = int(hex_digits[idx], 16)
         if fixed_bits_count == 4:
-            digit_regexes.append(hex_digits[idx])
+            digit = hex_digits[idx]
+            #making sure the regex is case-insensitive
+            #e.g. 'c' -> '[cC]'
+            if digit.isalpha():
+                digit_regexes.append("[" + digit + digit.upper() + "]")
+            else:
+                digit_regexes.append(digit)
+            can_be_zero.append(curr_digit == 0)
         elif fixed_bits_count == 0:
             digit_regexes.append(ANY_HEX_DIGIT_REGEX)
+            can_be_zero.append(True)
         else:
             free_bits = 4 - fixed_bits_count
             value_count = 2 ** free_bits
@@ -95,21 +116,44 @@ def ipv6_or_ipv6_cidr_to_regex(entry: str) -> str:
             allowed_digits = ""
             for value in range(lowest_value, highest_value + 1):
                 allowed_digits += format(value, "x")
+
+                #adding the Upper Case for the letters
+                if value >= 10:
+                    allowed_digits += format(value, "X")
             digit_regexes.append("[" + allowed_digits + "]")
+            #if the lowesst possible value is not 0, the digit cannot possibly be zero
+            can_be_zero.append(lowest_value == 0)
 
     #joining everything together - adding the ':' characters
-    groups = []
+    group_regexes = []
+    group_can_be_zero = []
     for group_idx in range(8):
-        #each group - 4 hexadec. digits
-        start_idx = 4 * group_idx
-        end_idx = start_idx + 4
-        
-        four_digit_regexes = digit_regexes[start_idx : end_idx]
-        
-        group = "".join(four_digit_regexes)
-        groups.append(group)
+        #the current group
+        start = 4 * group_idx
+        end = start + 4
+        group_digits = digit_regexes[start:end]
+        digits_zero = can_be_zero[start:end]
 
-    return ":".join(groups)
+        #all the possible variants of the same 4 hex. digits (all possible combinations of skipped leftmost 0s)
+        possible_variants = []
+        #1 to 3 0s can be skipped, e.g. :0020: -> :20:
+        for idx in range(1, 5):
+            skipped_zeros_count = 4 - idx
+            if all(digits_zero[0:skipped_zeros_count]):
+                #adding this particular variant - the currently skipped zeros are not added, while the rest of the group is added
+                possible_variants.append("".join(group_digits[skipped_zeros_count:]))
+
+        #e.g. :0020: -> (0020|020|20)
+        group_regexes.append("(" + "|".join(possible_variants) + ")")
+        #can all the digits of this group be zeros? -> if so, the whole group can be later skipped (::)
+        group_can_be_zero.append(all(digits_zero))
+
+    #assembling the full IPv6 address
+    addresses = [":".join(group_regexes)]
+
+    addresses.extend(ipv6_shortened_variant(group_regexes, group_can_be_zero))
+
+    return "(" + "|".join(addresses) + ")"
 
 def entry_to_regex(entry: str) -> str:
     net = ipaddress.ip_network(entry.strip(), strict=False)
